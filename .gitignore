@@ -2,8 +2,13 @@
 data/
 __pycache__/
 checkpoints/
-*.pth
+logs/
 *.jpg
+out/
 venv/
 .idea/
 wandb/
+learning_curves/
+testset/masks/
+brain*/
+cube*

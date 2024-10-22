@@ -1,0 +1,12 @@
+follow hpc conda setup guide
+conda create --prefix /usr/local/usrapps/$GROUP/$USER/unet python=3.8 
+conda activate /usr/local/usrapps/$GROUP/$USER/unet
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+pip install matplotlib numpy Pillow tqdm wandb
+
+cd /share/$GROUP/$USER/
+git clone https://github.com/regarry/hippocampus-unet.git
+cd hippocampus-unet/
+
+bsub < scripts/train.sh
+bjobs
