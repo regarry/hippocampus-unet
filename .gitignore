@@ -1,5 +1,5 @@
 *.pyc
-data/
+data/testset/masks_*
 __pycache__/
 checkpoints/
 logs/

@@ -12,8 +12,6 @@ from utils.data_loading import BasicDataset
 from unet import UNet
 from utils.utils import plot_img_and_mask
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
-torch.set_num_threads(8)
                 
 def predict_img(net,
                 full_img,

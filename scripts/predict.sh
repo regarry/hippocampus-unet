@@ -13,4 +13,11 @@ hostname
 nvidia-smi
 nvcc --version
 
-python train.py --validation 20 --batch_size 50 --epochs 100 --scale .5
+# Get the current date and time
+datetime=$(date '+%Y%m%d_%H%M%S')
+
+# Create the output directory
+output_dir="./data/testset/masks_$datetime"
+mkdir -p $output_dir
+
+python predict.py -s 0.5 -m ./checkpoints/checkpoint_epoch10.pth -i ./data/testset/imgs -o $output_dir

@@ -35,8 +35,8 @@ from matplotlib import pyplot as plt
 # dir_img = Path(dir_rsc_storage+'/cfos_img_labelkit/')
 # dir_mask = Path(dir_rsc_storage+'/cfos_mask_labelkit/')
 
-dir_img = Path('./trainset_12_11/imgs/')
-dir_mask = Path('./trainset_12_11/masks/')
+dir_img = Path('./data/trainset/imgs/')
+dir_mask = Path('./data/trainset/masks/')
 dir_checkpoint = Path('./checkpoints/')
 dir_curves = Path('./learning_curves/')
 
