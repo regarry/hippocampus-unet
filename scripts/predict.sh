@@ -16,8 +16,10 @@ nvcc --version
 # Get the current date and time
 datetime=$(date '+%Y%m%d_%H%M%S')
 
+
 # Create the output directory
-output_dir="./data/testset/masks_$datetime"
+output_dir="./Data_hippo_02_4/val/masks_pre1" #masks_$datetime
 mkdir -p $output_dir
 
-python predict.py -s 0.5 -m ./checkpoints/checkpoint_epoch10.pth -i ./data/testset/imgs -o $output_dir
+
+python predict1113.py -s 0.5 -m ./checkpoints13/checkpoint_epoch20.pth -i ./Data_hippo_02_1/val/imgs -o $output_dir -g ./Data_hippo_02_4/val/masks --viz

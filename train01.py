@@ -19,10 +19,12 @@ from torch import optim
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 from unet import UNet
-from utils.data_loading import BasicDataset
+from utils.data_loading2 import BasicDataset
 from utils.dice_score import dice_loss
 from utils.dice_score import multiclass_dice_coeff, dice_coeff
 from matplotlib import pyplot as plt
+from PIL import Image
+
 #import wandb
 
 #print(f'gpu count loc 0: {torch.cuda.device_count()}') 
@@ -35,27 +37,33 @@ from matplotlib import pyplot as plt
 # dir_img = Path(dir_rsc_storage+'/cfos_img_labelkit/')
 # dir_mask = Path(dir_rsc_storage+'/cfos_mask_labelkit/')
 
-dir_img = Path('./data/trainset/imgs/')
-dir_mask = Path('./data/trainset/masks/')
-dir_checkpoint = Path('./checkpoints/')
+dir_img = Path('./Data_hippo_02_1/train/imgs/')
+dir_mask = Path('./Data_hippo_02_1/train/masks/')
+dir_checkpoint = Path('./checkpoints3/')
 dir_curves = Path('./learning_curves/')
 
 def plot_loss(train_loss, val_loss, dice_score):
-    epochs = np.array((range(1,len(train_loss)+1)))
+    epochs = np.array(range(1, len(train_loss) + 1))
     train_loss = np.array(train_loss)
     val_loss = np.array(val_loss)
-    dice_score = np.array(dice_score)
-    plt.plot(epochs,train_loss/train_loss[0],label='train loss')
-    plt.plot(epochs,val_loss/val_loss[0],label='val loss')
-    plt.plot(epochs,dice_score,label='dice score')
+
+    # Convert each element in dice_score to CPU and then to NumPy array if it's a tensor
+    if isinstance(dice_score, list):
+        dice_score = np.array([score.cpu().numpy() if torch.is_tensor(score) else score for score in dice_score])
+    else:
+        dice_score = np.array(dice_score.cpu().numpy() if torch.is_tensor(dice_score) else dice_score)
+
+    plt.plot(epochs, train_loss / train_loss[0], label='train loss')
+    plt.plot(epochs, val_loss / val_loss[0], label='val loss')
+    plt.plot(epochs, dice_score, label='dice score')
     plt.title("Normalized Loss Plot vs Epoch")
     plt.xlabel("Epoch")
     plt.ylabel("Loss: Cross Entropy + Dice")
     plt.legend()
-    current_datetime = datetime.now()
-    current_datetime = current_datetime.strftime('%Y-%m-%d %H:%M:%S')
+    current_datetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     Path(dir_curves).mkdir(parents=True, exist_ok=True)
     plt.savefig(f'{dir_curves}/learning_curve_{current_datetime}.png')
+    plt.show() 
     
 @torch.inference_mode()
 def evaluate(net, dataloader, device, amp, alpha):
@@ -110,6 +118,7 @@ def evaluate(net, dataloader, device, amp, alpha):
     return {'dice_score': (dice_score / max(num_val_batches, 1)),
             'val_loss': val_loss}
 
+
 def train_model(
         model,
         device,
@@ -127,7 +136,7 @@ def train_model(
         alpha: float = 1
 ):
     # 1. Create dataset
-    dataset = BasicDataset(dir_img, dir_mask, img_scale, mask_suffix='_mask', is_train=True)
+    dataset = BasicDataset(dir_img, dir_mask, img_scale, mask_suffix='', is_train=True)
 
     # 2. Split into train / validation partitions
     n_val = math.ceil(len(dataset) * val_percent)
@@ -274,7 +283,7 @@ def train_model(
 
 def get_args():
     parser = argparse.ArgumentParser(description='Train the UNet on images and target masks')
-    parser.add_argument('--epochs', '-e', metavar='E', type=int, default=5, help='Number of epochs')
+    parser.add_argument('--epochs', '-e', metavar='E', type=int, default=10, help='Number of epochs')
     parser.add_argument('--batch_size', '-b', dest='batch_size', metavar='B', type=int, default=50, help='Batch size')
     parser.add_argument('--learning_rate', '-l', metavar='LR', type=float, default=1e-5,
                         help='Learning rate', dest='lr')
@@ -284,7 +293,7 @@ def get_args():
                         help='Percent of the data that is used as validation (0-100)')
     parser.add_argument('--amp', action='store_true', default=True, help='Use mixed precision')
     parser.add_argument('--bilinear', action='store_true', default=False, help='Use bilinear upsampling')
-    parser.add_argument('--classes', '-c', type=int, default=2, help='Number of classes')
+    parser.add_argument('--classes', '-c', type=int, default=3, help='Number of classes')
     parser.add_argument('--nchannels', type=int, default=1, help='Number of channels of input images (int)')
 
     return parser.parse_args()
@@ -303,7 +312,6 @@ if __name__ == '__main__':
         sys.exit()
 
     model = UNet(n_channels=args.nchannels, n_classes=args.classes, bilinear=args.bilinear)
-    
     model = model.to(memory_format=torch.channels_last)
 
     logging.info(f'Network:\n'

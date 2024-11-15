@@ -13,7 +13,7 @@ from pathlib import Path
 from torch.utils.data import Dataset
 from torchvision import transforms
 from tqdm import tqdm
-
+import re
 
 def load_image(filename):
     ext = splitext(filename)[1]
@@ -23,8 +23,6 @@ def load_image(filename):
         return Image.fromarray(torch.load(filename).numpy())
     else:
         return Image.open(filename)
-
-
 
 def unique_mask_values(idx, mask_dir, mask_suffix):
     mask_file = list(mask_dir.glob(idx + mask_suffix + '.*'))[0]
@@ -46,26 +44,38 @@ class BasicDataset(Dataset):
         assert 0 < scale <= 1, 'Scale must be between 0 and 1'
         self.scale = scale
         self.mask_suffix = mask_suffix
-        self.ids = [splitext(file)[0] for file in listdir(images_dir) if isfile(join(images_dir, file)) and not file.startswith('.')]
-        if not self.ids:
-            raise RuntimeError(f'No input file found in {images_dir}, make sure you put your images there')
 
-        logging.info(f'Creating dataset with {len(self.ids)} examples')
+        # Get list of image files and group by base name
+        self.image_groups = {}
+        for file in listdir(images_dir):
+            if isfile(join(images_dir, file)) and not file.startswith('.'):
+                base_name = re.match(r'(.+)_\d+$', splitext(file)[0]).group(1)
+                if base_name in self.image_groups:
+                    self.image_groups[base_name].append(file)
+                else:
+                    self.image_groups[base_name] = [file]
+        
+        if not self.image_groups:
+            raise RuntimeError(f'No input files found in {images_dir}. Please make sure your images are there.')
+        
+        self.mask_values = self.get_mask_values(mask_dir)
+        
+    def get_mask_values(self, mask_dir):
         logging.info('Scanning mask files to determine unique values')
         with Pool() as p:
             unique = list(tqdm(
-                p.imap(partial(unique_mask_values, mask_dir=self.mask_dir, mask_suffix=self.mask_suffix), self.ids),
-                total=len(self.ids)
+                p.imap(partial(unique_mask_values, mask_dir=mask_dir, mask_suffix=self.mask_suffix), self.image_groups.keys()),
+                total=len(self.image_groups)
             ))
-        
         flattened_unique = [arr.flatten() for arr in unique]
-        self.mask_values = list(sorted(np.unique(np.concatenate(flattened_unique)).tolist()))
-        #self.mask_values = list(sorted(np.unique(np.concatenate(unique), axis=0).tolist()))
-        logging.info(f'Unique mask values: {self.mask_values}')
+        mask_value = list(sorted(np.unique(np.concatenate(flattened_unique)).tolist()))
+        return mask_value
 
+
+    # def __len__(self):
+    #     return len(self.ids)
     def __len__(self):
-        return len(self.ids)
-
+        return sum(len(images) for images in self.image_groups.values())
 
     def random_rotation_augment(self, img, mask, p_flip = 0.5):
         """ rotate numpy array pairs randomly in 90 degree increments"""
@@ -163,36 +173,57 @@ class BasicDataset(Dataset):
                 # only augment images for training dataset
                 arr = BasicDataset.random_gradient_augment(arr, p_gradient=0.5, min_gradient = 0.2)
                 
-            if arr.ndim == 2:
-                img = arr[np.newaxis, ...]
-            else:
-                img = arr.transpose((2, 0, 1))
+            # if arr.ndim == 2:
+            #     img = arr[np.newaxis, ...]
+            # else:
+            #     img = arr.transpose((2, 0, 1))
 
+            img=arr
             if (img > 1).any():
                 img = img / 255.0
 
             return img
-        
+
+
     def __getitem__(self, idx):
+
+        base_name = list(self.image_groups.keys())[idx // len(self.image_groups)]
+        image_name = self.image_groups[base_name][idx % len(self.image_groups[base_name])]
+
+        # name = self.ids[idx]
+        # mask_file = list(self.mask_dir.glob(name + self.mask_suffix + '.*'))
+        # img_file = list(self.images_dir.glob(name + '.*'))
+
+        img_file = self.images_dir / image_name
+        mask_file = self.mask_dir / f"{base_name}{self.mask_suffix}.png"
+
+        # assert len(img_file) == 1, f'Either no image or multiple images found for the ID {image_name}: {img_file}'
+        # assert len(mask_file) == 1, f'Either no mask or multiple masks found for the ID {base_name}: {mask_file}'
         
-        name = self.ids[idx]
-        mask_file = list(self.mask_dir.glob(name + self.mask_suffix + '.*'))
-        img_file = list(self.images_dir.glob(name + '.*'))
-
-        assert len(img_file) == 1, f'Either no image or multiple images found for the ID {name}: {img_file}'
-        assert len(mask_file) == 1, f'Either no mask or multiple masks found for the ID {name}: {mask_file}'
-        mask = load_image(mask_file[0])
-        img = load_image(img_file[0])
-
+        mask = load_image(mask_file)
+        img = load_image(img_file)
+        
         assert img.size == mask.size, \
-            f'Image and mask {name} should be the same size, but are {img.size} and {mask.size}'
+            f'Image and mask {image_name} should be the same size, but are {img.size} and {mask.size}'
 
         img = self.preprocess(self.mask_values, img, self.scale, is_mask=False, is_train=self.is_train)
         mask = self.preprocess(self.mask_values, mask, self.scale, is_mask=True, is_train=self.is_train)
-    
+            
+        if img.ndim == 2:
+            img = img[np.newaxis, ...]  
+
         img = torch.as_tensor(img.copy()).float().contiguous()
         mask = torch.as_tensor(mask.copy()).long().contiguous()
+
+        #打印通道信息
+        # print(f"Image {name} loaded with shape: {img.shape}")
+        # print(f"Mask {name} loaded with shape: {mask.shape}")
+        
         mean, std = img.mean([1,2]), img.std([1,2])
+
+        if torch.any(std == 0):
+            logging.warning(f"Standard deviation is zero for image {image_name}.") 
+
         transform_norm = transforms.Normalize(mean, std)
         img = transform_norm(img)
         

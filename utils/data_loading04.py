@@ -1,3 +1,4 @@
+#在0的基础上修改
 import logging
 import numpy as np
 import torch
@@ -13,7 +14,13 @@ from pathlib import Path
 from torch.utils.data import Dataset
 from torchvision import transforms
 from tqdm import tqdm
+import cv2
 
+TARGET_SIZE = (256, 256)
+def resize_if_needed(image, target_size=TARGET_SIZE):
+    if image.size != target_size:
+        return image.resize(target_size, Image.LANCZOS if image.mode == 'RGB' else Image.NEAREST)
+    return image
 
 def load_image(filename):
     ext = splitext(filename)[1]
@@ -23,8 +30,6 @@ def load_image(filename):
         return Image.fromarray(torch.load(filename).numpy())
     else:
         return Image.open(filename)
-
-
 
 def unique_mask_values(idx, mask_dir, mask_suffix):
     mask_file = list(mask_dir.glob(idx + mask_suffix + '.*'))[0]
@@ -36,7 +41,6 @@ def unique_mask_values(idx, mask_dir, mask_suffix):
         return np.unique(mask, axis=0)
     else:
         raise ValueError(f'Loaded masks should have 2 or 3 dimensions, found {mask.ndim}')
-
 
 class BasicDataset(Dataset):
     def __init__(self, images_dir: str, mask_dir: str, scale: float = 1.0, mask_suffix: str = '', is_train: bool = True):
@@ -57,7 +61,6 @@ class BasicDataset(Dataset):
                 p.imap(partial(unique_mask_values, mask_dir=self.mask_dir, mask_suffix=self.mask_suffix), self.ids),
                 total=len(self.ids)
             ))
-        
         flattened_unique = [arr.flatten() for arr in unique]
         self.mask_values = list(sorted(np.unique(np.concatenate(flattened_unique)).tolist()))
         #self.mask_values = list(sorted(np.unique(np.concatenate(unique), axis=0).tolist()))
@@ -65,7 +68,6 @@ class BasicDataset(Dataset):
 
     def __len__(self):
         return len(self.ids)
-
 
     def random_rotation_augment(self, img, mask, p_flip = 0.5):
         """ rotate numpy array pairs randomly in 90 degree increments"""
@@ -81,10 +83,17 @@ class BasicDataset(Dataset):
         return img_rotated, mask_rotated
     
     @staticmethod
-    def random_gradient_augment(img, p_gradient=0.5, min_gradient = 0.2):
+    def random_gradient_augment(img, p_gradient=0.5, min_gradient = 0.2,p_blur=0.5):
         """ randomly augment a grayscale image numpy array with a random gradient. 
         Gradients can be linear horizontal, linear vertical, or radial. """
-        
+
+        # Decide whether to apply Gaussian blur
+        if np.random.rand() < p_blur:
+            # Apply Gaussian blur with a random kernel size
+            kernel_size = random.choice([(3, 3), (5, 5), (7, 7)])
+            img = cv2.GaussianBlur(img, kernel_size, sigmaX=0)
+            return img  # Return immediately after applying blur if chosen
+
         # Generate a random number to decide the type of gradient'
         upper_limit = int(1/(p_gradient+1/10000) * 6)
         gradient_type = np.random.randint(0, upper_limit)
@@ -150,11 +159,15 @@ class BasicDataset(Dataset):
             
         if is_mask:
             mask = np.zeros((newH, newW), dtype=np.int64)
+
             for i, v in enumerate(mask_values):
                 if arr.ndim == 2:
                     mask[arr == v] = i
                 else:
                     mask[(arr == v).all(-1)] = i
+
+            assert mask.min() >= 0 and mask.max() < len(mask_values), \
+                f"Mask values out of range [0, {len(mask_values) - 1}], found [{mask.min()}, {mask.max()}]"
 
             return mask
 
@@ -163,16 +176,16 @@ class BasicDataset(Dataset):
                 # only augment images for training dataset
                 arr = BasicDataset.random_gradient_augment(arr, p_gradient=0.5, min_gradient = 0.2)
                 
-            if arr.ndim == 2:
-                img = arr[np.newaxis, ...]
-            else:
-                img = arr.transpose((2, 0, 1))
+            # if arr.ndim == 2:
+            #     img = arr[np.newaxis, ...]
+            # else:
+            #     img = arr.transpose((2, 0, 1))
 
+            img=arr
             if (img > 1).any():
                 img = img / 255.0
-
             return img
-        
+
     def __getitem__(self, idx):
         
         name = self.ids[idx]
@@ -181,17 +194,29 @@ class BasicDataset(Dataset):
 
         assert len(img_file) == 1, f'Either no image or multiple images found for the ID {name}: {img_file}'
         assert len(mask_file) == 1, f'Either no mask or multiple masks found for the ID {name}: {mask_file}'
+        
         mask = load_image(mask_file[0])
         img = load_image(img_file[0])
+
+        img = resize_if_needed(img, TARGET_SIZE)
+        mask = resize_if_needed(mask, TARGET_SIZE)
 
         assert img.size == mask.size, \
             f'Image and mask {name} should be the same size, but are {img.size} and {mask.size}'
 
         img = self.preprocess(self.mask_values, img, self.scale, is_mask=False, is_train=self.is_train)
-        mask = self.preprocess(self.mask_values, mask, self.scale, is_mask=True, is_train=self.is_train)
-    
+        mask = self.preprocess(self.mask_values, mask, self.scale, is_mask=True, is_train=self.is_train)    
+            
+        if img.ndim == 2:
+            img = img[np.newaxis, ...]  
+
         img = torch.as_tensor(img.copy()).float().contiguous()
         mask = torch.as_tensor(mask.copy()).long().contiguous()
+
+        #打印通道信息
+        # print(f"Image {name} loaded with shape: {img.shape}")
+        # print(f"Mask {name} loaded with shape: {mask.shape}")
+        
         mean, std = img.mean([1,2]), img.std([1,2])
         transform_norm = transforms.Normalize(mean, std)
         img = transform_norm(img)

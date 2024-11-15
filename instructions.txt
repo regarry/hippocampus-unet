@@ -11,3 +11,7 @@ cd hippocampus-unet/
 lsload -gpuload # check for open GPUs
 bsub < scripts/train.sh
 bjobs
+
+bsub -o logs/1.log < scripts/train.sh
+pip install [package name] --target /share/lsmsmart/fyu7/hippocampus-unet/tmp --no-cache-dir
+conda activate /usr/local/usrapps/lsmsmart/fyu7/unet
