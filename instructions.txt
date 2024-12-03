@@ -11,3 +11,5 @@ cd hippocampus-unet/
 lsload -gpuload # check for open GPUs
 bsub < scripts/train.sh
 bjobs
+
+conda env create --prefix /usr/local/usrapps/lsmsmart/regarry/clearmap -f ClearMap.yml

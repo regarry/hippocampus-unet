@@ -15,4 +15,4 @@ hostname
 nvidia-smi
 nvcc --version
 
-python train.py --validation 20 --batch_size 50 --epochs 100 --scale .5
+python train.py --validation 20 --batch_size 50 --epochs 5 --scale .5
